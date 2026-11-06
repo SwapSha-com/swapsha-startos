@@ -1,22 +1,11 @@
 # SwapSha
 
-<!--
-TODO: Write user-facing instructions per the packaging guide:
-  start-technologies/projects/start-sdk/docs/src/writing-instructions.md
-
-This is shown on the Instructions tab in StartOS, for the person running the service —
-not for developers. Start from "I just installed this — now what?", reference real
-actions and interfaces, and link (don't duplicate) upstream docs. Remove these comments.
--->
+SwapSha is test software. This version of the package does not run swaps yet: it installs and starts its database only, while the rest of the service is being packaged. It has not been audited, and swaps on mainnet are switched off.
 
 ## Documentation
 
-<!-- TODO: link the upstream documentation URLs, each with a few words of context. -->
+- SwapSha: <https://swapsha.com>
 
 ## What you get on StartOS
 
-<!-- TODO: the interfaces it exposes, the data it manages, what this package adds. -->
-
-## Getting set up
-
-<!-- TODO: numbered steps from first launch to a usable state. -->
+Nothing to use yet. Installing this version only checks that the package installs, starts and stops on your server.

@@ -1,0 +1,4 @@
+[submodule "swapsha-backend"]
+	path = swapsha-backend
+	url = https://github.com/SwapSha-com/swapsha-backend.git
+	branch = swapsha/main

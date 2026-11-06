@@ -1,51 +1,59 @@
+import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
-import { uiPort } from './utils'
+import { pgDatabase, pgMountpoint, pgUser } from './utils'
 
 export const main = sdk.setupMain(async ({ effects }) => {
-  /**
-   * ======================== Setup (optional) ========================
-   *
-   * Fetch any resources or run any preliminary commands here.
-   */
   console.info(i18n('Starting SwapSha!'))
 
-  /**
-   * ======================== Daemons ========================
-   *
-   * Define one or more daemons that make up the service runtime. Each daemon
-   * declares a `ready` health check, run on every polling interval, that reports
-   * its state to the user.
-   *
-   * The ids here ('example-daemon', 'example-image', 'example-volume',
-   * 'example-subcontainer') are arbitrary — rename them to suit your service.
-   * 'example-image' must match an image key in startos/manifest/index.ts, and
-   * 'example-volume' must match an entry in the manifest `volumes` array.
-   */
-  return sdk.Daemons.of(effects).addDaemon('example-daemon', {
-    subcontainer: sdk.SubContainer.of(
-      effects,
-      { imageId: 'example-image' },
-      sdk.Mounts.of().mountVolume({
-        volumeId: 'example-volume',
-        subpath: null,
-        mountpoint: '/data',
-        readonly: false,
-      }),
-      'example-subcontainer',
-    ),
-    exec: { command: ['hello-world'] },
-    // Health check, run on each polling interval. `checkPortListening` reports
-    // ready once the daemon binds `uiPort`; expose that port from an interface
-    // (see interfaces.ts) so users can reach it. For other services swap in
-    // `checkWebUrl` or `runHealthScript` — see the Health Checks guide.
+  const pgPassword = await storeJson.read((s) => s.pgPassword).const(effects)
+  if (!pgPassword) throw new Error('store.json has no PostgreSQL password')
+
+  // Build step A1: PostgreSQL only. The backend daemon follows in A2, once
+  // its configuration and the Bitcoin dependencies are wired.
+  const postgres = sdk.SubContainer.of(
+    effects,
+    { imageId: 'postgres' },
+    sdk.Mounts.of().mountVolume({
+      volumeId: 'db',
+      subpath: null,
+      mountpoint: pgMountpoint,
+      readonly: false,
+    }),
+    'postgres',
+  )
+
+  return sdk.Daemons.of(effects).addDaemon('postgres', {
+    subcontainer: postgres,
+    exec: {
+      command: sdk.useEntrypoint(['-c', 'listen_addresses=127.0.0.1']),
+      env: {
+        POSTGRES_USER: pgUser,
+        POSTGRES_PASSWORD: pgPassword,
+        POSTGRES_DB: pgDatabase,
+      },
+    },
     ready: {
-      display: i18n('Web Interface'),
-      fn: () =>
-        sdk.healthCheck.checkPortListening(effects, uiPort, {
-          successMessage: i18n('The web interface is ready'),
-          errorMessage: i18n('The web interface is not ready'),
-        }),
+      display: null,
+      fn: async () => {
+        const result = await postgres.exec([
+          'pg_isready',
+          '-q',
+          '-h',
+          '127.0.0.1',
+          '-d',
+          pgDatabase,
+          '-U',
+          pgUser,
+        ])
+        if (result.exitCode !== 0) {
+          return {
+            result: 'starting',
+            message: i18n('Waiting for PostgreSQL to be ready'),
+          }
+        }
+        return { result: 'success', message: i18n('PostgreSQL is ready') }
+      },
     },
     requires: [],
   })

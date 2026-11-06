@@ -5,3 +5,14 @@ javascript
 ncc-cache
 docker-images
 *.s9pk
+# The backend submodule: only its source goes into the build
+swapsha-backend/.git
+swapsha-backend/node_modules
+swapsha-backend/target
+swapsha-backend/dist
+swapsha-backend/regtest
+# hold: only its protos, which the TypeScript and Rust builds both compile
+swapsha-backend/hold/*
+!swapsha-backend/hold/protos
+swapsha-backend/swapsha-regtest/data
+swapsha-backend/swapsha-testnet4/data

@@ -4,23 +4,28 @@ import { long, short } from './i18n'
 export const manifest = setupManifest({
   id: 'swapsha',
   title: 'SwapSha',
-  license: 'MIT', // TODO: match the upstream project's license
-  packageRepo: 'https://github.com/REPLACE_ME/swapsha-startos', // TODO: set the packaging repo URL
-  upstreamRepo: 'https://github.com/REPLACE_ME/REPLACE_ME', // TODO: set the upstream project URL
-  marketingUrl: 'https://REPLACE_ME', // TODO: set or remove
-  donationUrl: 'https://REPLACE_ME', // TODO: set or remove
+  license: 'AGPL-3.0',
+  packageRepo: 'https://github.com/SwapSha-com/swapsha-startos',
+  upstreamRepo: 'https://github.com/SwapSha-com/swapsha-backend',
+  marketingUrl: 'https://swapsha.com',
+  donationUrl: null,
   description: { short, long },
-  // 'example-volume' is an arbitrary id — name volumes whatever suits the
-  // service. It must match the volumeId mounted in startos/main.ts and the
-  // volume backed up in startos/backups.ts.
-  volumes: ['example-volume'],
+  // main: the backend's data directory. db: PostgreSQL. startos: store.json,
+  // which no subcontainer mounts.
+  volumes: ['main', 'db', 'startos'],
   images: {
-    // 'example-image' is an arbitrary id — it must match the imageId used in
-    // startos/main.ts. TODO: replace the hello-world image with your service's
-    // image — set dockerTag (or add a Dockerfile) and rename this key.
-    'example-image': {
-      source: { dockerTag: 'ghcr.io/start9labs/hello-world:2.0.0' },
-      arch: ['x86_64', 'aarch64'],
+    // Built from ./Dockerfile out of the swapsha-backend submodule
+    swapsha: {
+      source: {
+        dockerBuild: {
+          buildArgs: { SWAPSHA_COMMIT: { env: 'SWAPSHA_COMMIT' } },
+        },
+      },
+      arch: ['x86_64'],
+    },
+    postgres: {
+      source: { dockerTag: 'postgres:17-bookworm' },
+      arch: ['x86_64'],
     },
   },
 })

@@ -1,18 +1,17 @@
-# Updating the upstream version
+# Updating
 
-<!--
-TODO: Describe what "upstream" means for SwapSha (a Docker image pinned by tag, a git
-submodule, or a self-built image) and how to track its version, one subsection per pinned
-source. This file is the bump recipe and nothing else: no version, migration or release-note
-rules, no test plan, no design notes. See project-structure.md § UPDATING.md in the packaging
-guide. Remove these comments.
--->
+Upstream is [SwapSha-com/swapsha-backend](https://github.com/SwapSha-com/swapsha-backend), a fork of the Boltz backend, pinned here as the `swapsha-backend` submodule on branch `swapsha/main`.
 
-## Determining the upstream version
+## Bump the backend
 
-<!-- TODO: where the current pin lives in startos/manifest/index.ts, and how to fetch the
-     latest upstream version (e.g. `gh release view -R <org>/<repo> --json tagName -q .tagName`). -->
+1. Move the pin: `git -C swapsha-backend pull`, or check out the commit to pin. Then `git -C swapsha-backend submodule update --init hold`: the backend's own `hold` submodule supplies `hold/protos`, which both the TypeScript and the Rust builds compile. The backend's other submodule, `regtest`, is not needed.
+2. Set the version in `startos/versions/current.ts`. If `version` in `swapsha-backend/package.json` changed, use it with revision `:0`. Otherwise raise the revision, for example `3.13.0:0` to `3.13.0:1`: the fork keeps the Boltz version through its own changes, so most bumps only raise the revision.
+3. Build with `make x86`, install, and check that the service starts.
 
-## Applying the bump
+## PostgreSQL
 
-<!-- TODO: the exact file and field to edit, including any tag-format quirks. -->
+`postgres:17-bookworm` in `startos/manifest/index.ts`: the major version the backend's tests ran against. Moving to another major version needs a dump and a restore of the database, so never change the major version in place.
+
+## Node
+
+`NODE_VERSION` in `Dockerfile` follows `swapsha-backend/docker/build.py`.

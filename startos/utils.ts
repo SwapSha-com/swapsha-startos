@@ -1,5 +1,4 @@
-// Constants and helper functions shared across this package's startos/ code go
-// here. `uiPort` is the port the example daemon serves on: main.ts health-checks
-// it, and you bind it from an interface in interfaces.ts once you add one. Change
-// it to whatever your service listens on.
-export const uiPort = 80
+// PostgreSQL, reachable only inside the package (listen_addresses=127.0.0.1)
+export const pgUser = 'swapsha'
+export const pgDatabase = 'swapsha'
+export const pgMountpoint = '/var/lib/postgresql'
