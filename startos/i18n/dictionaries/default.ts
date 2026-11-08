@@ -12,6 +12,13 @@ const dict = {
   'Create the RPC login SwapSha uses on this node': 5,
   'Turn on the transaction index and ZeroMQ for SwapSha': 6,
   'Turn on ZeroMQ and the wallet for SwapSha': 7,
+
+  // main.ts
+  Backend: 8,
+  'The backend is running. New swaps stay turned down on mainnet until Phase 5.': 9,
+  'Waiting for the backend: chain checks, wallets and sidecar': 10,
+  Nodes: 11,
+  'Waiting for Bitcoin Knots and the Companion: both installed and running, with ZeroMQ on and their tasks done': 12,
 } as const
 
 /**

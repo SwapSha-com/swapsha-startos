@@ -3,7 +3,8 @@
 # with these differences for the package:
 # - the source is the submodule, copied in, not cloned;
 # - no git runs inside the build (.dockerignore keeps .git out); the commit
-#   arrives as SWAPSHA_COMMIT, which parseGitCommit.js reads;
+#   arrives as SWAPSHA_COMMIT, which parseGitCommit.js (backend) and
+#   boltzr's get_version (sidecar, patch 0050) read; the two must match;
 # - only the backend's two Rust binaries are built;
 # - the Postgres client matches the Postgres 17 server the package runs.
 

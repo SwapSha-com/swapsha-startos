@@ -1,16 +1,83 @@
+import { boltzConf } from './fileModels/boltz.conf'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
-import { pgDatabase, pgMountpoint, pgUser } from './utils'
+import {
+  apiPort,
+  companionRpcLocalHostId,
+  companionRpcLocalPort,
+  dataDir,
+  grpcPort,
+  nodeRpcHostId,
+  nodeRpcPort,
+  nodeWalletName,
+  nodeZmqBlockPort,
+  nodeZmqHostId,
+  nodeZmqTxPort,
+  pgDatabase,
+  pgMountpoint,
+  pgUser,
+  RpcNode,
+  sidecarApiPort,
+  sidecarGrpcPort,
+  sidecarWsPort,
+} from './utils'
+
+// "10.0.3.1:18432" -> host and port
+const hostPort = (address: string) => {
+  const i = address.lastIndexOf(':')
+  return { host: address.slice(0, i), port: Number(address.slice(i + 1)) }
+}
 
 export const main = sdk.setupMain(async ({ effects }) => {
   console.info(i18n('Starting SwapSha!'))
 
-  const pgPassword = await storeJson.read((s) => s.pgPassword).const(effects)
+  const store = await storeJson.read().const(effects)
+  const pgPassword = store?.pgPassword
   if (!pgPassword) throw new Error('store.json has no PostgreSQL password')
 
-  // Build step A1: PostgreSQL only. The backend daemon follows in A2, once
-  // its configuration and the Bitcoin dependencies are wired.
+  // Each node's addresses on the host bridge. null while a node is not
+  // installed, or its ZeroMQ is off; .const() restarts main when one changes.
+  // Only the http RPC bindings publish a TLS address too, hence ssl there.
+  const bridge = (
+    packageId: RpcNode,
+    hostId: string,
+    internalPort: number,
+    ssl?: false,
+  ) =>
+    sdk.host
+      .getBridgeAddress(effects, {
+        packageId,
+        hostId,
+        internalPort,
+        ...(ssl === false ? { ssl } : {}),
+      })
+      .const()
+
+  const btcRpc = await bridge('bitcoind', nodeRpcHostId, nodeRpcPort, false)
+  const btcZmqBlock = await bridge('bitcoind', nodeZmqHostId, nodeZmqBlockPort)
+  const btcZmqTx = await bridge('bitcoind', nodeZmqHostId, nodeZmqTxPort)
+  const shaRpc = await bridge(
+    'knots-prerdts',
+    nodeRpcHostId,
+    nodeRpcPort,
+    false,
+  )
+  const shaRpcLocal = await bridge(
+    'knots-prerdts',
+    companionRpcLocalHostId,
+    companionRpcLocalPort,
+  )
+  const shaZmqBlock = await bridge(
+    'knots-prerdts',
+    nodeZmqHostId,
+    nodeZmqBlockPort,
+  )
+  const shaZmqTx = await bridge('knots-prerdts', nodeZmqHostId, nodeZmqTxPort)
+
+  const btcLogin = store?.rpc?.bitcoind
+  const shaLogin = store?.rpc?.['knots-prerdts']
+
   const postgres = sdk.SubContainer.of(
     effects,
     { imageId: 'postgres' },
@@ -23,7 +90,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     'postgres',
   )
 
-  return sdk.Daemons.of(effects).addDaemon('postgres', {
+  const daemons = sdk.Daemons.of(effects).addDaemon('postgres', {
     subcontainer: postgres,
     exec: {
       command: sdk.useEntrypoint(['-c', 'listen_addresses=127.0.0.1']),
@@ -56,5 +123,181 @@ export const main = sdk.setupMain(async ({ effects }) => {
       },
     },
     requires: [],
+  })
+
+  // No address is made up for a node that is not there: the backend stays
+  // off and this check says why, until .const() brings main back
+  if (
+    !btcRpc ||
+    !btcZmqBlock ||
+    !btcZmqTx ||
+    !shaRpc ||
+    !shaRpcLocal ||
+    !shaZmqBlock ||
+    !shaZmqTx ||
+    !btcLogin ||
+    !shaLogin
+  ) {
+    return daemons.addHealthCheck('nodes', {
+      ready: {
+        display: i18n('Nodes'),
+        fn: () => ({
+          result: 'failure',
+          message: i18n(
+            'Waiting for Bitcoin Knots and the Companion: both installed and running, with ZeroMQ on and their tasks done',
+          ),
+        }),
+      },
+      requires: [],
+    })
+  }
+
+  // Stage 1 of Phase 3 (Blueprint D37): Mike's mainnet nodes. The backend
+  // runs its startup checks against them and turns down every new swap until
+  // Phase 5 (patch 0045). Pair rate, fees, limits and timeouts are the
+  // testnet4 values as placeholders, to be set with the operator before then
+  // (D19); pace bounds wait for measured mainnet data (D30), so the nominal
+  // block time applies. Chain swaps only: Lightning Fork comes in A3 (D42).
+  const chain = (
+    rpc: string,
+    login: { user: string; password: string },
+    zmqBlock: string,
+    zmqTx: string,
+  ) => ({
+    ...hostPort(rpc),
+    user: login.user,
+    password: login.password,
+    wallet: nodeWalletName,
+    zmq: { rawblock: `tcp://${zmqBlock}`, rawtx: `tcp://${zmqTx}` },
+    feeFloor: 1,
+  })
+
+  await boltzConf.write(effects, {
+    network: 'mainnet',
+    loglevel: 'info',
+    api: { host: '127.0.0.1', port: apiPort },
+    grpc: { host: '127.0.0.1', port: grpcPort },
+    postgres: {
+      host: '127.0.0.1',
+      port: 5432,
+      database: pgDatabase,
+      username: pgUser,
+      password: pgPassword,
+    },
+    pairs: [
+      {
+        base: 'BTC',
+        quote: 'SHA256',
+        rate: 1,
+        fee: 0.5,
+        maxSwapAmount: 10_000_000,
+        minSwapAmount: 50_000,
+        swapTypes: ['chain'],
+        chainSwap: { minSwapAmount: 50_000 },
+        timeoutDelta: {
+          chain: 120,
+          reverse: 360,
+          swapMinimal: 120,
+          swapMaximal: 240,
+          swapTaproot: 1100,
+        },
+      },
+    ],
+    currencies: [
+      {
+        symbol: 'SHA256',
+        network: 'bitcoinMainnet',
+        preferredWallet: 'core',
+        minWalletBalance: 0,
+        maxSwapAmount: 10_000_000,
+        minSwapAmount: 10_000,
+        maxZeroConfAmount: 0,
+        chain: {
+          ...chain(shaRpc, shaLogin, shaZmqBlock, shaZmqTx),
+          // D40: the SHA-256 wallet, account 1', set up past the proxy
+          seedAccount: 1,
+          seedWalletRpc: hostPort(shaRpcLocal),
+        },
+      },
+      {
+        symbol: 'BTC',
+        network: 'bitcoinMainnet',
+        blake2b: true,
+        preferredWallet: 'core',
+        minWalletBalance: 0,
+        maxSwapAmount: 10_000_000,
+        minSwapAmount: 10_000,
+        maxZeroConfAmount: 0,
+        chain: {
+          ...chain(btcRpc, btcLogin, btcZmqBlock, btcZmqTx),
+          // D40: the BTC wallet, account 0'
+          seedAccount: 0,
+        },
+      },
+    ],
+    swap: {
+      deferredClaimSymbols: [],
+      batchClaimInterval: '*/15 * * * *',
+      expiryTolerance: 120,
+      cltvDelta: 20,
+    },
+    routing: { default: 0.0035 },
+    rates: { interval: 1 },
+    sidecar: {
+      grpc: { host: '127.0.0.1', port: sidecarGrpcPort },
+      ws: { host: '127.0.0.1', port: sidecarWsPort },
+      api: { host: '127.0.0.1', port: sidecarApiPort },
+    },
+  })
+
+  return daemons.addDaemon('backend', {
+    subcontainer: sdk.SubContainer.of(
+      effects,
+      { imageId: 'swapsha' },
+      sdk.Mounts.of().mountVolume({
+        volumeId: 'main',
+        subpath: null,
+        mountpoint: dataDir,
+        readonly: false,
+      }),
+      'backend',
+    ),
+    exec: {
+      // The log file goes to the container's /tmp, not the backed-up volume;
+      // StartOS keeps the output
+      command: sdk.useEntrypoint([
+        '--datadir',
+        dataDir,
+        '--configpath',
+        `${dataDir}/boltz.conf`,
+        '--logpath',
+        '/tmp/boltz.log',
+      ]),
+      // Release sidecar (target/release/boltzr)
+      env: { NODE_ENV: 'production' },
+    },
+    ready: {
+      display: i18n('Backend'),
+      // The API listens once every startup check has passed. A port check,
+      // not a fetch: checkWebUrl logs a stack trace for every refused try.
+      fn: async () => {
+        const check = await sdk.healthCheck.checkPortListening(
+          effects,
+          apiPort,
+          {
+            successMessage: i18n(
+              'The backend is running. New swaps stay turned down on mainnet until Phase 5.',
+            ),
+            errorMessage: i18n(
+              'Waiting for the backend: chain checks, wallets and sidecar',
+            ),
+          },
+        )
+        return check.result === 'success'
+          ? check
+          : { result: 'starting', message: check.message }
+      },
+    },
+    requires: ['postgres'],
   })
 })
