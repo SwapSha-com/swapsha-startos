@@ -521,11 +521,13 @@ export const main = sdk.setupMain(async ({ effects }) => {
         requires: ['backend'],
       })
       // A3d: blueprint 6.4's alerts, every two minutes. Liquidity is read only
-      // while new swaps can be made.
+      // while new swaps can be made. The first check runs a second after the
+      // backend is up; cooldownTrigger would wait the full two minutes first
+      // and keep SwapSha "Starting" that long (A4a, Nov 8).
       .addHealthCheck('alerts', {
         ready: {
           display: i18n('Alerts'),
-          trigger: sdk.trigger.cooldownTrigger(120_000),
+          trigger: sdk.trigger.statusTrigger(120_000, { starting: 1_000 }),
           fn: async () => {
             const alerts = overviewAlerts(
               await gatherOverview(effects, {
