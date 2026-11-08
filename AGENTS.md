@@ -18,3 +18,7 @@ bare clone with no workspace, the full guide is at <https://docs.start9.com/pack
   (backend patch 0051). The spread is not a backend setting: `startos/operator.ts` folds it into
   the per-direction fees (Blueprint D43). Change the operator's terms through `store.json`
   (`operator`), never by editing `boltz.conf`, which `main.ts` rewrites on every start.
+- The operator dashboard lives inside StartOS (Blueprint D45): the Swaps Overview action and the
+  `alerts` health check, both from `startos/overview.ts`. It only reads: the backend's API, its
+  admin gRPC through `boltzr-cli` (certificates and `admin.jwt` in `/data/certificates`), the
+  database through `psql`, and the nodes' RPC. Do not add a web dashboard interface.

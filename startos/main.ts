@@ -4,11 +4,13 @@ import { boltzConf } from './fileModels/boltz.conf'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { directionFee, operatorTerms, sats } from './operator'
+import { gatherOverview, overviewAlerts } from './overview'
 import { sdk } from './sdk'
 import {
   apiPort,
   apiProxyPort,
   apiProxySubpath,
+  backendNetwork,
   companionRpcLocalHostId,
   companionRpcLocalPort,
   dataDir,
@@ -212,7 +214,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
   })
 
   await boltzConf.write(effects, {
-    network: 'mainnet',
+    network: backendNetwork,
     loglevel: 'info',
     // A3c, patch 0052: new swaps turned down, swaps already made carry on
     pauseNewSwaps: terms.paused,
@@ -333,188 +335,209 @@ export const main = sdk.setupMain(async ({ effects }) => {
     })
   }
 
-  return daemons
-    .addDaemon('backend', {
-      subcontainer: sdk.SubContainer.of(
-        effects,
-        { imageId: 'swapsha' },
-        backendMounts,
-        'backend',
-      ),
-      exec: {
-        // The log file goes to the container's /tmp, not the backed-up volume;
-        // StartOS keeps the output
-        command: sdk.useEntrypoint([
-          '--datadir',
-          dataDir,
-          '--configpath',
-          `${dataDir}/boltz.conf`,
-          '--logpath',
-          '/tmp/boltz.log',
-        ]),
-        // Release sidecar (target/release/boltzr)
-        env: { NODE_ENV: 'production' },
-      },
-      ready: {
-        display: i18n('Backend'),
-        // The API listens once every startup check has passed. A port check,
-        // not a fetch: checkWebUrl logs a stack trace for every refused try.
-        fn: async () => {
-          const check = await sdk.healthCheck.checkPortListening(
-            effects,
-            apiPort,
-            {
-              successMessage: i18n(
-                'The backend is running. New swaps stay turned down on mainnet until Phase 5.',
-              ),
-              errorMessage: i18n(
-                'Waiting for the backend: chain checks, wallets and sidecar',
-              ),
-            },
-          )
-          return check.result === 'success'
-            ? check
-            : { result: 'starting', message: check.message }
+  return (
+    daemons
+      .addDaemon('backend', {
+        subcontainer: sdk.SubContainer.of(
+          effects,
+          { imageId: 'swapsha' },
+          backendMounts,
+          'backend',
+        ),
+        exec: {
+          // The log file goes to the container's /tmp, not the backed-up volume;
+          // StartOS keeps the output
+          command: sdk.useEntrypoint([
+            '--datadir',
+            dataDir,
+            '--configpath',
+            `${dataDir}/boltz.conf`,
+            '--logpath',
+            '/tmp/boltz.log',
+          ]),
+          // Release sidecar (target/release/boltzr)
+          env: { NODE_ENV: 'production' },
         },
-      },
-      requires: ['postgres'],
-    })
-    .addDaemon('api', {
-      subcontainer: sdk.SubContainer.of(
-        effects,
-        { imageId: 'nginx' },
-        sdk.Mounts.of().mountVolume({
-          volumeId: 'main',
-          subpath: apiProxySubpath,
-          mountpoint: '/etc/nginx/conf.d',
-          readonly: true,
-        }),
-        'api',
-      ),
-      exec: { command: sdk.useEntrypoint() },
-      ready: {
-        display: i18n('API'),
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, apiProxyPort, {
-            successMessage: i18n(
-              'The API interface is answering. New swaps on mainnet are turned down until Phase 5.',
-            ),
-            errorMessage: i18n('The API interface is not answering'),
+        ready: {
+          display: i18n('Backend'),
+          // The API listens once every startup check has passed. A port check,
+          // not a fetch: checkWebUrl logs a stack trace for every refused try.
+          fn: async () => {
+            const check = await sdk.healthCheck.checkPortListening(
+              effects,
+              apiPort,
+              {
+                successMessage: i18n(
+                  'The backend is running. New swaps stay turned down on mainnet until Phase 5.',
+                ),
+                errorMessage: i18n(
+                  'Waiting for the backend: chain checks, wallets and sidecar',
+                ),
+              },
+            )
+            return check.result === 'success'
+              ? check
+              : { result: 'starting', message: check.message }
+          },
+        },
+        requires: ['postgres'],
+      })
+      .addDaemon('api', {
+        subcontainer: sdk.SubContainer.of(
+          effects,
+          { imageId: 'nginx' },
+          sdk.Mounts.of().mountVolume({
+            volumeId: 'main',
+            subpath: apiProxySubpath,
+            mountpoint: '/etc/nginx/conf.d',
+            readonly: true,
           }),
-      },
-      requires: ['backend'],
-    })
-    .addHealthCheck('lightning', {
-      ready: {
-        display: i18n('Lightning'),
-        fn: async () => {
-          if (!lfMacaroon) {
-            return {
-              result: 'disabled',
-              message: i18n(
-                'Not connected: chain swaps only. Run Connect Lightning Fork to check the node (D42).',
+          'api',
+        ),
+        exec: { command: sdk.useEntrypoint() },
+        ready: {
+          display: i18n('API'),
+          fn: () =>
+            sdk.healthCheck.checkPortListening(effects, apiProxyPort, {
+              successMessage: i18n(
+                'The API interface is answering. New swaps on mainnet are turned down until Phase 5.',
               ),
-            }
-          }
-          if (!lfGrpc) {
-            return {
-              result: 'failure',
-              message: i18n(
-                "Waiting for Lightning Fork's gRPC: installed, running, with its wallet open",
-              ),
-            }
-          }
-          // The backend lists a node only once it has connected and passed
-          // the D42 checks
-          try {
-            const res = await fetch(`http://127.0.0.1:${apiPort}/v2/nodes`, {
-              signal: AbortSignal.timeout(2_000),
-            })
-            const nodes = (await res.json()) as {
-              BTC?: { LND?: { publicKey?: string } }
-            }
-            const key = nodes.BTC?.LND?.publicKey
-            if (key) {
+              errorMessage: i18n('The API interface is not answering'),
+            }),
+        },
+        requires: ['backend'],
+      })
+      .addHealthCheck('lightning', {
+        ready: {
+          display: i18n('Lightning'),
+          fn: async () => {
+            if (!lfMacaroon) {
               return {
-                result: 'success',
+                result: 'disabled',
                 message: i18n(
-                  'Connected to Lightning Fork (node ${key}) with the read-only macaroon. Lightning swaps stay off until Phase 5.',
-                  { key: `${key.slice(0, 10)}...` },
+                  'Not connected: chain swaps only. Run Connect Lightning Fork to check the node (D42).',
                 ),
               }
             }
-            return {
-              result: 'failure',
-              message: i18n(
-                'The backend did not connect to Lightning Fork: see the log',
-              ),
-            }
-          } catch {
-            return {
-              result: 'starting',
-              message: i18n('Waiting for the backend'),
-            }
-          }
-        },
-      },
-      requires: ['backend'],
-    })
-    .addHealthCheck('swaps', {
-      ready: {
-        display: i18n('Swaps'),
-        fn: async () => {
-          if (terms.paused) {
-            return {
-              result: 'disabled',
-              message: i18n(
-                'Paused: new swaps are turned down, swaps already made carry on',
-              ),
-            }
-          }
-          // What the backend took from boltz.conf, as the API shows it
-          try {
-            const res = await fetch(
-              `http://127.0.0.1:${apiPort}/v2/swap/chain`,
-              { signal: AbortSignal.timeout(2_000) },
-            )
-            const pairs = (await res.json()) as {
-              BTC?: {
-                SHA256?: {
-                  rate: number
-                  fees: { percentage: number }
-                  limits: { minimal: number; maximal: number }
-                }
-              }
-            }
-            const pair = pairs.BTC?.SHA256
-            if (!pair) {
+            if (!lfGrpc) {
               return {
                 result: 'failure',
                 message: i18n(
-                  'The backend does not list the BTC to SHA-256 pair: see the log',
+                  "Waiting for Lightning Fork's gRPC: installed, running, with its wallet open",
                 ),
               }
             }
-            return {
-              result: 'success',
-              message: i18n(
-                'Rate ${rate} SHA-256 per BTC, fee ${fee}% each way, swaps from ${min} to ${max} SHA-256 sats',
-                {
-                  rate: String(pair.rate),
-                  fee: String(pair.fees.percentage),
-                  min: sats(pair.limits.minimal),
-                  max: sats(pair.limits.maximal),
-                },
-              ),
+            // The backend lists a node only once it has connected and passed
+            // the D42 checks
+            try {
+              const res = await fetch(`http://127.0.0.1:${apiPort}/v2/nodes`, {
+                signal: AbortSignal.timeout(2_000),
+              })
+              const nodes = (await res.json()) as {
+                BTC?: { LND?: { publicKey?: string } }
+              }
+              const key = nodes.BTC?.LND?.publicKey
+              if (key) {
+                return {
+                  result: 'success',
+                  message: i18n(
+                    'Connected to Lightning Fork (node ${key}) with the read-only macaroon. Lightning swaps stay off until Phase 5.',
+                    { key: `${key.slice(0, 10)}...` },
+                  ),
+                }
+              }
+              return {
+                result: 'failure',
+                message: i18n(
+                  'The backend did not connect to Lightning Fork: see the log',
+                ),
+              }
+            } catch {
+              return {
+                result: 'starting',
+                message: i18n('Waiting for the backend'),
+              }
             }
-          } catch {
-            return {
-              result: 'starting',
-              message: i18n('Waiting for the backend'),
-            }
-          }
+          },
         },
-      },
-      requires: ['backend'],
-    })
+        requires: ['backend'],
+      })
+      .addHealthCheck('swaps', {
+        ready: {
+          display: i18n('Swaps'),
+          fn: async () => {
+            if (terms.paused) {
+              return {
+                result: 'disabled',
+                message: i18n(
+                  'Paused: new swaps are turned down, swaps already made carry on',
+                ),
+              }
+            }
+            // What the backend took from boltz.conf, as the API shows it
+            try {
+              const res = await fetch(
+                `http://127.0.0.1:${apiPort}/v2/swap/chain`,
+                { signal: AbortSignal.timeout(2_000) },
+              )
+              const pairs = (await res.json()) as {
+                BTC?: {
+                  SHA256?: {
+                    rate: number
+                    fees: { percentage: number }
+                    limits: { minimal: number; maximal: number }
+                  }
+                }
+              }
+              const pair = pairs.BTC?.SHA256
+              if (!pair) {
+                return {
+                  result: 'failure',
+                  message: i18n(
+                    'The backend does not list the BTC to SHA-256 pair: see the log',
+                  ),
+                }
+              }
+              return {
+                result: 'success',
+                message: i18n(
+                  'Rate ${rate} SHA-256 per BTC, fee ${fee}% each way, swaps from ${min} to ${max} SHA-256 sats',
+                  {
+                    rate: String(pair.rate),
+                    fee: String(pair.fees.percentage),
+                    min: sats(pair.limits.minimal),
+                    max: sats(pair.limits.maximal),
+                  },
+                ),
+              }
+            } catch {
+              return {
+                result: 'starting',
+                message: i18n('Waiting for the backend'),
+              }
+            }
+          },
+        },
+        requires: ['backend'],
+      })
+      // A3d: blueprint 6.4's alerts, every two minutes. Liquidity is read only
+      // while new swaps can be made.
+      .addHealthCheck('alerts', {
+        ready: {
+          display: i18n('Alerts'),
+          trigger: sdk.trigger.cooldownTrigger(120_000),
+          fn: async () => {
+            const alerts = overviewAlerts(
+              await gatherOverview(effects, {
+                withBalances: backendNetwork !== 'mainnet' && !terms.paused,
+              }),
+            )
+            return alerts.length
+              ? { result: 'failure', message: alerts.join('; ') }
+              : { result: 'success', message: i18n('No alerts') }
+          },
+        },
+        requires: ['backend'],
+      })
+  )
 })

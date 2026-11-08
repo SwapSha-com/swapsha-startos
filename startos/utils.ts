@@ -28,6 +28,12 @@ export const nodeWalletName = 'swapsha'
 
 // The backend (boltzd and its sidecar), all on 127.0.0.1 in the package
 export const dataDir = '/data' // the main volume
+// Stage 1 of Phase 3 (D37): the backend turns down every new swap on
+// mainnet until Phase 5 (patch 0045). Test mode (A5) changes this.
+export const backendNetwork = 'mainnet'
+// boltzr-cli and the gRPC certificates the backend writes to its datadir
+export const boltzrCli = '/boltz-backend/target/release/boltzr-cli'
+export const grpcCertificates = `${dataDir}/certificates`
 export const apiPort = 9001
 export const grpcPort = 9000
 export const sidecarGrpcPort = 9003
