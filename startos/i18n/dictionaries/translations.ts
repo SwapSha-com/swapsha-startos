@@ -34,6 +34,10 @@ export default {
     29: 'Conectado a Lightning Fork (nodo ${key}) con el macaroon de solo lectura. Los swaps Lightning siguen desactivados hasta la fase 5.',
     30: 'El backend no se conectó a Lightning Fork: mira el registro',
     31: 'Esperando al backend',
+    32: 'API',
+    33: 'API REST y WebSocket para la aplicación web y Crossbill. Los swaps nuevos en mainnet se rechazan hasta la fase 5.',
+    34: 'La interfaz API responde. Los swaps nuevos en mainnet se rechazan hasta la fase 5.',
+    35: 'La interfaz API no responde',
   },
   de_DE: {
     0: 'Starte SwapSha!',
@@ -68,6 +72,10 @@ export default {
     29: 'Mit Lightning Fork verbunden (Knoten ${key}) über das Nur-Lese-Macaroon. Lightning-Swaps bleiben bis Phase 5 aus.',
     30: 'Das Backend hat sich nicht mit Lightning Fork verbunden: siehe Log',
     31: 'Warte auf das Backend',
+    32: 'API',
+    33: 'REST- und WebSocket-API für die Web-App und Crossbill. Neue Swaps im Mainnet werden bis Phase 5 abgelehnt.',
+    34: 'Die API-Schnittstelle antwortet. Neue Swaps im Mainnet werden bis Phase 5 abgelehnt.',
+    35: 'Die API-Schnittstelle antwortet nicht',
   },
   pl_PL: {
     0: 'Uruchamianie SwapSha!',
@@ -102,6 +110,10 @@ export default {
     29: 'Połączono z Lightning Fork (węzeł ${key}) przez macaroon tylko do odczytu. Swapy Lightning pozostają wyłączone do fazy 5.',
     30: 'Backend nie połączył się z Lightning Fork: zobacz dziennik',
     31: 'Oczekiwanie na backend',
+    32: 'API',
+    33: 'API REST i WebSocket dla aplikacji webowej i Crossbill. Nowe swapy na mainnecie są odrzucane aż do fazy 5.',
+    34: 'Interfejs API odpowiada. Nowe swapy na mainnecie są odrzucane aż do fazy 5.',
+    35: 'Interfejs API nie odpowiada',
   },
   fr_FR: {
     0: 'Démarrage de SwapSha !',
@@ -136,5 +148,9 @@ export default {
     29: "Connecté à Lightning Fork (nœud ${key}) avec le macaroon en lecture seule. Les swaps Lightning restent désactivés jusqu'à la phase 5.",
     30: "Le backend ne s'est pas connecté à Lightning Fork : voir le journal",
     31: 'En attente du backend',
+    32: 'API',
+    33: "API REST et WebSocket pour l'application web et Crossbill. Les nouveaux swaps sur le mainnet sont refusés jusqu'à la phase 5.",
+    34: "L'interface API répond. Les nouveaux swaps sur le mainnet sont refusés jusqu'à la phase 5.",
+    35: "L'interface API ne répond pas",
   },
 } satisfies Record<string, LangDict>

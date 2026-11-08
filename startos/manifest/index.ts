@@ -27,5 +27,10 @@ export const manifest = setupManifest({
       source: { dockerTag: 'postgres:17-bookworm' },
       arch: ['x86_64'],
     },
+    // The API interface's reverse proxy (A3b), nginx stable
+    nginx: {
+      source: { dockerTag: 'nginx:1.30.6-trixie' },
+      arch: ['x86_64'],
+    },
   },
 })

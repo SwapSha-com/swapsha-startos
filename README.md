@@ -31,6 +31,7 @@ SwapSha is an open-source, non-custodial swap between Bitcoin (BTC) and coins on
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | `swapsha`  | Built from `./Dockerfile` out of the `swapsha-backend` submodule: Node 24, the backend (`boltzd`) and its Rust sidecar (`boltzr`), Postgres 17 client tools | x86_64        |
 | `postgres` | Official `postgres:17-bookworm`                                                                                                                             | x86_64        |
+| `nginx`    | Official `nginx:1.30.6-trixie` (stable), the API interface's reverse proxy                                                                                  | x86_64        |
 
 The backend's commit reaches the image build as `SWAPSHA_COMMIT`, which the `Makefile` reads from the submodule; no git runs inside the build. The build also needs the backend's own `hold` submodule, for `hold/protos`: after cloning, run `git submodule update --init` and then `git -C swapsha-backend submodule update --init hold`.
 
@@ -66,7 +67,13 @@ The dependency icons in `dep-icons/` are copied from the two packages (`dep-icon
 
 ## Network Access and Interfaces
 
-No interfaces yet. PostgreSQL (5432), the backend's API (9001) and gRPC (9000), and the sidecar (9003 to 9005) listen on `127.0.0.1` only.
+| Interface | Type | Port                           | What it serves                                                                                                                                                                                                                                                                                             |
+| --------- | ---- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API       | api  | 9006 (nginx, StartOS adds TLS) | The backend's REST API (`/`), the sidecar's API (`/v2/swap/rescue`, `/v2/swap/restore`, `/v2/quote`, `/v2/lightning/`, `/v2/asset`, swap stats, `/streamswapstatus`) and its WebSocket (`/v2/ws`), routed as `swapsha-backend/docker/nginx.conf` routes them, with the same open CORS headers. LAN and Tor |
+
+`startos/apiProxy.ts` holds the nginx config; `main.ts` writes it to `main` (`nginx/api.conf`), mounted read-only at `/etc/nginx/conf.d`. Behind it, PostgreSQL (5432), the backend's API (9001) and gRPC (9000), and the sidecar (9003 to 9005) listen on `127.0.0.1` only.
+
+On mainnet the API turns down every new swap until Phase 5 (D37), so it answers pairs, quotes, fees, node info and status. `GET /v2/nodes` lists Lightning Fork's node ID and the addresses it advertises, as Boltz's API does for every provider.
 
 The backend reaches the nodes through the host bridge, at addresses read with `sdk.host.getBridgeAddress` from their bindings (host id and internal port, from each package's `startos/utils.ts`):
 
@@ -109,6 +116,7 @@ To check for the RPC login, init mounts the node's `main` volume read-only in a 
 | ----------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `postgres`  | No    | `pg_isready` against `127.0.0.1` as the `swapsha` user                                                                                                     |
 | `backend`   | Yes   | The API port (9001) listening; starting until it is, which is after every startup check                                                                    |
+| `api`       | Yes   | nginx listening on 9006; after `backend`                                                                                                                   |
 | `nodes`     | Yes   | Only while a node address or RPC login is missing; the backend is off then                                                                                 |
 | `lightning` | Yes   | Disabled until Connect Lightning Fork; then success once the backend lists Lightning Fork in `GET /v2/nodes`, which it does only after the D42 checks pass |
 
@@ -133,17 +141,18 @@ upstream_version: 3.13.0 (swapsha-backend package.json)
 images:
   swapsha: local build (./Dockerfile)
   postgres: postgres:17-bookworm
+  nginx: nginx:1.30.6-trixie (API reverse proxy)
 architectures: [x86_64]
 volumes:
   main: backend data directory at /data (boltz.conf, seed.dat)
   db: PostgreSQL at /var/lib/postgresql
   startos: store.json
-interfaces: none
+interfaces: [api (port 9006, nginx: backend REST, sidecar API and /v2/ws)]
 dependencies:
   bitcoind: '>=#knots:29.4.3:1' (running; tasks generate-rpc-dependent, autoconfig txindex+zmqEnabled)
   knots-prerdts: '>=#knotsprerdts:31.2:0' (running; tasks generate-rpc-dependent, autoconfig zmqEnabled+wallet.enable)
   lightning-fork: '>=0.21.6-beta.23:0' (optional, running, health lnd; on with Connect Lightning Fork; mounts public/ only)
 actions: [connect-lightning-fork (read-only macaroon only), disconnect-lightning-fork]
-health_checks: [postgres (pg_isready, not shown), backend (API port 9001 listening), nodes (only while a node is missing), lightning (Lightning Fork in GET /v2/nodes)]
+health_checks: [postgres (pg_isready, not shown), backend (API port 9001 listening), api (nginx 9006), nodes (only while a node is missing), lightning (Lightning Fork in GET /v2/nodes)]
 backup: pg_dump of swapsha, plus volumes main and startos
 ```

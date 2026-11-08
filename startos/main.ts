@@ -1,10 +1,13 @@
-import { rm } from 'fs/promises'
+import { mkdir, rm } from 'fs/promises'
+import { apiProxyConf } from './apiProxy'
 import { boltzConf } from './fileModels/boltz.conf'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
 import {
   apiPort,
+  apiProxyPort,
+  apiProxySubpath,
   companionRpcLocalHostId,
   companionRpcLocalPort,
   dataDir,
@@ -295,6 +298,10 @@ export const main = sdk.setupMain(async ({ effects }) => {
     },
   })
 
+  // The API interface's nginx config (A3b)
+  await mkdir(sdk.volumes.main.subpath(apiProxySubpath), { recursive: true })
+  await sdk.volumes.main.writeFile(`${apiProxySubpath}/api.conf`, apiProxyConf)
+
   let backendMounts = sdk.Mounts.of().mountVolume({
     volumeId: 'main',
     subpath: null,
@@ -357,6 +364,31 @@ export const main = sdk.setupMain(async ({ effects }) => {
         },
       },
       requires: ['postgres'],
+    })
+    .addDaemon('api', {
+      subcontainer: sdk.SubContainer.of(
+        effects,
+        { imageId: 'nginx' },
+        sdk.Mounts.of().mountVolume({
+          volumeId: 'main',
+          subpath: apiProxySubpath,
+          mountpoint: '/etc/nginx/conf.d',
+          readonly: true,
+        }),
+        'api',
+      ),
+      exec: { command: sdk.useEntrypoint() },
+      ready: {
+        display: i18n('API'),
+        fn: () =>
+          sdk.healthCheck.checkPortListening(effects, apiProxyPort, {
+            successMessage: i18n(
+              'The API interface is answering. New swaps on mainnet are turned down until Phase 5.',
+            ),
+            errorMessage: i18n('The API interface is not answering'),
+          }),
+      },
+      requires: ['backend'],
     })
     .addHealthCheck('lightning', {
       ready: {

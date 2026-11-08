@@ -34,6 +34,12 @@ export const sidecarGrpcPort = 9003
 export const sidecarWsPort = 9004
 export const sidecarApiPort = 9005
 
+// The API interface (A3b): nginx in front of the backend and the sidecar,
+// the only port bound for other machines
+export const apiHostId = 'api'
+export const apiProxyPort = 9006
+export const apiProxySubpath = 'nginx' // on main, mounted at /etc/nginx/conf.d
+
 // Lightning Fork (D42), as its package defines it (paulscode/
 // lightning-fork-startos 9936a39): gRPC on host `grpc`, port 10009, LND's own
 // TLS (passthrough, bound once the wallet is open); `public/` on its main

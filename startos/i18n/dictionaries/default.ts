@@ -40,6 +40,12 @@ const dict = {
   'Connected to Lightning Fork (node ${key}) with the read-only macaroon. Lightning swaps stay off until Phase 5.': 29,
   'The backend did not connect to Lightning Fork: see the log': 30,
   'Waiting for the backend': 31,
+
+  // A3b: the API interface
+  API: 32,
+  'REST and WebSocket API for the web app and Crossbill. New swaps on mainnet are turned down until Phase 5.': 33,
+  'The API interface is answering. New swaps on mainnet are turned down until Phase 5.': 34,
+  'The API interface is not answering': 35,
 } as const
 
 /**
