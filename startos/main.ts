@@ -3,6 +3,7 @@ import { apiProxyConf } from './apiProxy'
 import { boltzConf } from './fileModels/boltz.conf'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
+import { directionFee, operatorTerms, sats } from './operator'
 import { sdk } from './sdk'
 import {
   apiPort,
@@ -189,10 +190,13 @@ export const main = sdk.setupMain(async ({ effects }) => {
 
   // Stage 1 of Phase 3 (Blueprint D37): Mike's mainnet nodes. The backend
   // runs its startup checks against them and turns down every new swap until
-  // Phase 5 (patch 0045). Pair rate, fees, limits and timeouts are the
-  // testnet4 values as placeholders, to be set with the operator before then
-  // (D19); pace bounds wait for measured mainnet data (D30), so the nominal
-  // block time applies. Lightning swap types only with Lightning Fork (D42).
+  // Phase 5 (patch 0045). Rate, fees, limits and the pause come from the
+  // Swaps actions (A3c; D19, D43); timeouts are the testnet4 values as
+  // placeholders. Pace bounds wait for measured mainnet data (D30), so the
+  // nominal block time applies. Lightning swap types only with Lightning
+  // Fork (D42).
+  const terms = operatorTerms(store?.operator)
+  const fee = directionFee(terms)
   const chain = (
     rpc: string,
     login: { user: string; password: string },
@@ -210,6 +214,8 @@ export const main = sdk.setupMain(async ({ effects }) => {
   await boltzConf.write(effects, {
     network: 'mainnet',
     loglevel: 'info',
+    // A3c, patch 0052: new swaps turned down, swaps already made carry on
+    pauseNewSwaps: terms.paused,
     api: { host: '127.0.0.1', port: apiPort },
     grpc: { host: '127.0.0.1', port: grpcPort },
     postgres: {
@@ -223,12 +229,20 @@ export const main = sdk.setupMain(async ({ effects }) => {
       {
         base: 'BTC',
         quote: 'SHA256',
-        rate: 1,
-        fee: 0.5,
-        maxSwapAmount: 10_000_000,
-        minSwapAmount: 50_000,
+        // SHA-256 coins per BTC; limits in SHA-256 sats (patch 0051)
+        rate: terms.rate,
+        // D43: the fee plus half the spread, each direction; `fee` also
+        // covers the Lightning swap types
+        fee,
+        maxSwapAmount: terms.maxSwapAmount,
+        minSwapAmount: terms.minSwapAmount,
         swapTypes: lfGrpc ? ['chain', 'submarine', 'reverse'] : ['chain'],
-        chainSwap: { minSwapAmount: 50_000 },
+        chainSwap: {
+          minSwapAmount: terms.minSwapAmount,
+          maxSwapAmount: terms.maxSwapAmount,
+          buyFee: fee, // SHA-256 to BTC
+          sellFee: fee, // BTC to SHA-256
+        },
         timeoutDelta: {
           chain: 120,
           reverse: 360,
@@ -433,6 +447,64 @@ export const main = sdk.setupMain(async ({ effects }) => {
               result: 'failure',
               message: i18n(
                 'The backend did not connect to Lightning Fork: see the log',
+              ),
+            }
+          } catch {
+            return {
+              result: 'starting',
+              message: i18n('Waiting for the backend'),
+            }
+          }
+        },
+      },
+      requires: ['backend'],
+    })
+    .addHealthCheck('swaps', {
+      ready: {
+        display: i18n('Swaps'),
+        fn: async () => {
+          if (terms.paused) {
+            return {
+              result: 'disabled',
+              message: i18n(
+                'Paused: new swaps are turned down, swaps already made carry on',
+              ),
+            }
+          }
+          // What the backend took from boltz.conf, as the API shows it
+          try {
+            const res = await fetch(
+              `http://127.0.0.1:${apiPort}/v2/swap/chain`,
+              { signal: AbortSignal.timeout(2_000) },
+            )
+            const pairs = (await res.json()) as {
+              BTC?: {
+                SHA256?: {
+                  rate: number
+                  fees: { percentage: number }
+                  limits: { minimal: number; maximal: number }
+                }
+              }
+            }
+            const pair = pairs.BTC?.SHA256
+            if (!pair) {
+              return {
+                result: 'failure',
+                message: i18n(
+                  'The backend does not list the BTC to SHA-256 pair: see the log',
+                ),
+              }
+            }
+            return {
+              result: 'success',
+              message: i18n(
+                'Rate ${rate} SHA-256 per BTC, fee ${fee}% each way, swaps from ${min} to ${max} SHA-256 sats',
+                {
+                  rate: String(pair.rate),
+                  fee: String(pair.fees.percentage),
+                  min: sats(pair.limits.minimal),
+                  max: sats(pair.limits.maximal),
+                },
               ),
             }
           } catch {

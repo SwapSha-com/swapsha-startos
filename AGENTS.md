@@ -14,3 +14,7 @@ bare clone with no workspace, the full guide is at <https://docs.start9.com/pack
   their actions: those modules import the native `diskusage` module. `startos/dependencies.ts`
   describes the two actions it needs (`generate-rpc-dependent`, `autoconfig`) by id and input
   type instead.
+- The pair is `BTC/SHA256`: `rate` is SHA-256 coins per BTC and every limit is in SHA-256 sats
+  (backend patch 0051). The spread is not a backend setting: `startos/operator.ts` folds it into
+  the per-direction fees (Blueprint D43). Change the operator's terms through `store.json`
+  (`operator`), never by editing `boltz.conf`, which `main.ts` rewrites on every start.

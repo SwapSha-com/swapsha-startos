@@ -19,6 +19,18 @@ const shape = z.looseObject({
     .looseObject({ macaroon: z.string() })
     .optional()
     .catch(undefined),
+  // A3c: the operator's terms and pause, from the Swaps actions. A field
+  // left unset falls back to utils.operatorDefaults (operator.ts).
+  operator: z
+    .looseObject({
+      rate: z.number().positive().optional().catch(undefined),
+      feePercent: z.number().min(0).optional().catch(undefined),
+      spreadPercent: z.number().min(0).optional().catch(undefined),
+      minSwapAmount: z.number().int().positive().optional().catch(undefined),
+      maxSwapAmount: z.number().int().positive().optional().catch(undefined),
+      paused: z.boolean().optional().catch(undefined),
+    })
+    .catch({}),
 })
 
 export const storeJson = FileHelper.json(

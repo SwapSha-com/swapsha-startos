@@ -51,3 +51,16 @@ export const lfPublicSubpath = 'public'
 export const lfMount = '/lightning-fork'
 // The macaroon the operator pastes, written to main for the backend
 export const lfMacaroonFile = 'lightning-fork.macaroon'
+
+// The operator's terms (A3c; D5, D19, D43) until the Swaps actions set
+// them: the testnet4 values, placeholders to be set with the operator before
+// Phase 5. The rate is SHA-256 coins per BTC; the limits are in SHA-256 sats
+// for both directions, a BTC amount counting at the rate (patch 0051).
+export const operatorDefaults = {
+  rate: 1,
+  feePercent: 0.5,
+  spreadPercent: 0,
+  minSwapAmount: 50_000,
+  maxSwapAmount: 10_000_000,
+  paused: false,
+}
