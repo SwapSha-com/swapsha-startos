@@ -13,6 +13,12 @@ const shape = z.looseObject({
       'knots-prerdts': rpcLogin.optional().catch(undefined),
     })
     .catch({}),
+  // D42: Lightning Fork's read-only macaroon, hex, from the Connect
+  // Lightning Fork action. Its presence turns the optional dependency on.
+  lightningFork: z
+    .looseObject({ macaroon: z.string() })
+    .optional()
+    .catch(undefined),
 })
 
 export const storeJson = FileHelper.json(

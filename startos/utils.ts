@@ -33,3 +33,15 @@ export const grpcPort = 9000
 export const sidecarGrpcPort = 9003
 export const sidecarWsPort = 9004
 export const sidecarApiPort = 9005
+
+// Lightning Fork (D42), as its package defines it (paulscode/
+// lightning-fork-startos 9936a39): gRPC on host `grpc`, port 10009, LND's own
+// TLS (passthrough, bound once the wallet is open); `public/` on its main
+// volume holds tls.cert and nothing else, for dependents to mount read-only.
+// Its cert names the OS bridge address, so no server name override.
+export const lfGrpcHostId = 'grpc'
+export const lfGrpcPort = 10009
+export const lfPublicSubpath = 'public'
+export const lfMount = '/lightning-fork'
+// The macaroon the operator pastes, written to main for the backend
+export const lfMacaroonFile = 'lightning-fork.macaroon'

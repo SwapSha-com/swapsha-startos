@@ -157,6 +157,23 @@ const companion = sdk.Dependency.required('knots-prerdts', {
     )
   })
 
+// Lightning Fork, optional (D42): on once the operator has given SwapSha its
+// Read only macaroon (Connect Lightning Fork). Chain swaps work without it.
+// Its wallet must be open (password entered): it binds gRPC only then. SwapSha mounts only
+// its public/ folder (tls.cert), never the macaroons beside it.
+const lightningFork = sdk.Dependency.optional('lightning-fork', {
+  description: i18n(
+    'Lightning on the BLAKE2b chain. SwapSha connects with its Read only macaroon to check the node; Lightning swaps stay off until Phase 5.',
+  ),
+  metadata: { title: 'Lightning Fork', icon: 'dep-icons/lightning-fork.png' },
+  versionRange: '>=0.21.6-beta.23:0',
+  kind: 'running',
+  healthChecks: ['lnd'],
+  enabled: async ({ effects }) =>
+    !!(await storeJson.read((s) => s.lightningFork?.macaroon).const(effects)),
+})
+
 export const dependencies = sdk.Dependencies.of()
   .addDependency(bitcoind)
   .addDependency(companion)
+  .addDependency(lightningFork)

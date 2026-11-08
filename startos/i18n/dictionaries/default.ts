@@ -19,6 +19,27 @@ const dict = {
   'Waiting for the backend: chain checks, wallets and sidecar': 10,
   Nodes: 11,
   'Waiting for Bitcoin Knots and the Companion: both installed and running, with ZeroMQ on and their tasks done': 12,
+
+  // Lightning Fork (D42): actions, dependency, main.ts
+  'Read only macaroon': 13,
+  "From Lightning Fork's dashboard: the Read only macaroon, in hex or base64. SwapSha refuses any macaroon that can do more than read.": 14,
+  'Connect Lightning Fork': 15,
+  "Give SwapSha Lightning Fork's Read only macaroon, so the backend can check the node. Lightning swaps stay off until Phase 5.": 16,
+  Lightning: 17,
+  'This is not an LND macaroon: ${reason}': 18,
+  'This macaroon can do more than read (${grants}). Until Phase 5 SwapSha takes only the Read only macaroon (D42).': 19,
+  'Lightning Fork connected': 20,
+  'SwapSha restarts with the read-only macaroon. Its log shows the Lightning checks.': 21,
+  'Disconnect Lightning Fork': 22,
+  'Remove the macaroon. SwapSha restarts without Lightning, with chain swaps only.': 23,
+  'Lightning Fork disconnected': 24,
+  'SwapSha restarts without Lightning.': 25,
+  'Lightning on the BLAKE2b chain. SwapSha connects with its Read only macaroon to check the node; Lightning swaps stay off until Phase 5.': 26,
+  'Not connected: chain swaps only. Run Connect Lightning Fork to check the node (D42).': 27,
+  "Waiting for Lightning Fork's gRPC: installed, running, with its wallet open": 28,
+  'Connected to Lightning Fork (node ${key}) with the read-only macaroon. Lightning swaps stay off until Phase 5.': 29,
+  'The backend did not connect to Lightning Fork: see the log': 30,
+  'Waiting for the backend': 31,
 } as const
 
 /**

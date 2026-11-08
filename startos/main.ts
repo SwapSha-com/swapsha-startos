@@ -1,3 +1,4 @@
+import { rm } from 'fs/promises'
 import { boltzConf } from './fileModels/boltz.conf'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
@@ -8,6 +9,11 @@ import {
   companionRpcLocalPort,
   dataDir,
   grpcPort,
+  lfGrpcHostId,
+  lfGrpcPort,
+  lfMacaroonFile,
+  lfMount,
+  lfPublicSubpath,
   nodeRpcHostId,
   nodeRpcPort,
   nodeWalletName,
@@ -77,6 +83,20 @@ export const main = sdk.setupMain(async ({ effects }) => {
 
   const btcLogin = store?.rpc?.bitcoind
   const shaLogin = store?.rpc?.['knots-prerdts']
+
+  // D42: Lightning Fork, once the operator has given SwapSha its Read only
+  // macaroon. Its gRPC binding exists only while its wallet is open; the
+  // TLS passthrough binding publishes one address, so no ssl filter.
+  const lfMacaroon = store?.lightningFork?.macaroon
+  const lfGrpc = lfMacaroon
+    ? await sdk.host
+        .getBridgeAddress(effects, {
+          packageId: 'lightning-fork',
+          hostId: lfGrpcHostId,
+          internalPort: lfGrpcPort,
+        })
+        .const()
+    : null
 
   const postgres = sdk.SubContainer.of(
     effects,
@@ -152,12 +172,24 @@ export const main = sdk.setupMain(async ({ effects }) => {
     })
   }
 
+  // The macaroon file the backend reads, only while it is in use
+  const lfMacaroonPath = sdk.volumes.main.subpath(lfMacaroonFile)
+  if (lfMacaroon && lfGrpc) {
+    await sdk.volumes.main.writeFile(
+      lfMacaroonFile,
+      Buffer.from(lfMacaroon, 'hex'),
+      { mode: 0o600 },
+    )
+  } else {
+    await rm(lfMacaroonPath, { force: true })
+  }
+
   // Stage 1 of Phase 3 (Blueprint D37): Mike's mainnet nodes. The backend
   // runs its startup checks against them and turns down every new swap until
   // Phase 5 (patch 0045). Pair rate, fees, limits and timeouts are the
   // testnet4 values as placeholders, to be set with the operator before then
   // (D19); pace bounds wait for measured mainnet data (D30), so the nominal
-  // block time applies. Chain swaps only: Lightning Fork comes in A3 (D42).
+  // block time applies. Lightning swap types only with Lightning Fork (D42).
   const chain = (
     rpc: string,
     login: { user: string; password: string },
@@ -192,7 +224,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
         fee: 0.5,
         maxSwapAmount: 10_000_000,
         minSwapAmount: 50_000,
-        swapTypes: ['chain'],
+        swapTypes: lfGrpc ? ['chain', 'submarine', 'reverse'] : ['chain'],
         chainSwap: { minSwapAmount: 50_000 },
         timeoutDelta: {
           chain: 120,
@@ -233,6 +265,19 @@ export const main = sdk.setupMain(async ({ effects }) => {
           // D40: the BTC wallet, account 0'
           seedAccount: 0,
         },
+        // D42: startup checks the node (BLAKE2b, feature bit 512, no simple
+        // taproot channels) and stops if it fails them
+        ...(lfGrpc
+          ? {
+              lnds: [
+                {
+                  ...hostPort(lfGrpc),
+                  certpath: `${lfMount}/tls.cert`,
+                  macaroonpath: `${dataDir}/${lfMacaroonFile}`,
+                },
+              ],
+            }
+          : {}),
       },
     ],
     swap: {
@@ -250,54 +295,122 @@ export const main = sdk.setupMain(async ({ effects }) => {
     },
   })
 
-  return daemons.addDaemon('backend', {
-    subcontainer: sdk.SubContainer.of(
-      effects,
-      { imageId: 'swapsha' },
-      sdk.Mounts.of().mountVolume({
-        volumeId: 'main',
-        subpath: null,
-        mountpoint: dataDir,
-        readonly: false,
-      }),
-      'backend',
-    ),
-    exec: {
-      // The log file goes to the container's /tmp, not the backed-up volume;
-      // StartOS keeps the output
-      command: sdk.useEntrypoint([
-        '--datadir',
-        dataDir,
-        '--configpath',
-        `${dataDir}/boltz.conf`,
-        '--logpath',
-        '/tmp/boltz.log',
-      ]),
-      // Release sidecar (target/release/boltzr)
-      env: { NODE_ENV: 'production' },
-    },
-    ready: {
-      display: i18n('Backend'),
-      // The API listens once every startup check has passed. A port check,
-      // not a fetch: checkWebUrl logs a stack trace for every refused try.
-      fn: async () => {
-        const check = await sdk.healthCheck.checkPortListening(
-          effects,
-          apiPort,
-          {
-            successMessage: i18n(
-              'The backend is running. New swaps stay turned down on mainnet until Phase 5.',
-            ),
-            errorMessage: i18n(
-              'Waiting for the backend: chain checks, wallets and sidecar',
-            ),
-          },
-        )
-        return check.result === 'success'
-          ? check
-          : { result: 'starting', message: check.message }
-      },
-    },
-    requires: ['postgres'],
+  let backendMounts = sdk.Mounts.of().mountVolume({
+    volumeId: 'main',
+    subpath: null,
+    mountpoint: dataDir,
+    readonly: false,
   })
+  if (lfGrpc) {
+    // Only Lightning Fork's public/ (tls.cert), never its macaroons (D42)
+    backendMounts = backendMounts.mountDependency({
+      dependencyId: 'lightning-fork',
+      volumeId: 'main',
+      subpath: lfPublicSubpath,
+      mountpoint: lfMount,
+      readonly: true,
+    })
+  }
+
+  return daemons
+    .addDaemon('backend', {
+      subcontainer: sdk.SubContainer.of(
+        effects,
+        { imageId: 'swapsha' },
+        backendMounts,
+        'backend',
+      ),
+      exec: {
+        // The log file goes to the container's /tmp, not the backed-up volume;
+        // StartOS keeps the output
+        command: sdk.useEntrypoint([
+          '--datadir',
+          dataDir,
+          '--configpath',
+          `${dataDir}/boltz.conf`,
+          '--logpath',
+          '/tmp/boltz.log',
+        ]),
+        // Release sidecar (target/release/boltzr)
+        env: { NODE_ENV: 'production' },
+      },
+      ready: {
+        display: i18n('Backend'),
+        // The API listens once every startup check has passed. A port check,
+        // not a fetch: checkWebUrl logs a stack trace for every refused try.
+        fn: async () => {
+          const check = await sdk.healthCheck.checkPortListening(
+            effects,
+            apiPort,
+            {
+              successMessage: i18n(
+                'The backend is running. New swaps stay turned down on mainnet until Phase 5.',
+              ),
+              errorMessage: i18n(
+                'Waiting for the backend: chain checks, wallets and sidecar',
+              ),
+            },
+          )
+          return check.result === 'success'
+            ? check
+            : { result: 'starting', message: check.message }
+        },
+      },
+      requires: ['postgres'],
+    })
+    .addHealthCheck('lightning', {
+      ready: {
+        display: i18n('Lightning'),
+        fn: async () => {
+          if (!lfMacaroon) {
+            return {
+              result: 'disabled',
+              message: i18n(
+                'Not connected: chain swaps only. Run Connect Lightning Fork to check the node (D42).',
+              ),
+            }
+          }
+          if (!lfGrpc) {
+            return {
+              result: 'failure',
+              message: i18n(
+                "Waiting for Lightning Fork's gRPC: installed, running, with its wallet open",
+              ),
+            }
+          }
+          // The backend lists a node only once it has connected and passed
+          // the D42 checks
+          try {
+            const res = await fetch(`http://127.0.0.1:${apiPort}/v2/nodes`, {
+              signal: AbortSignal.timeout(2_000),
+            })
+            const nodes = (await res.json()) as {
+              BTC?: { LND?: { publicKey?: string } }
+            }
+            const key = nodes.BTC?.LND?.publicKey
+            if (key) {
+              return {
+                result: 'success',
+                message: i18n(
+                  'Connected to Lightning Fork (node ${key}) with the read-only macaroon. Lightning swaps stay off until Phase 5.',
+                  { key: `${key.slice(0, 10)}...` },
+                ),
+              }
+            }
+            return {
+              result: 'failure',
+              message: i18n(
+                'The backend did not connect to Lightning Fork: see the log',
+              ),
+            }
+          } catch {
+            return {
+              result: 'starting',
+              message: i18n('Waiting for the backend'),
+            }
+          }
+        },
+      },
+      requires: ['backend'],
+    })
 })
