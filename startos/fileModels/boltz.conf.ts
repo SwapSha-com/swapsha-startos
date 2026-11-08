@@ -8,3 +8,9 @@ export const boltzConf = FileHelper.toml(
   { base: sdk.volumes.main, subpath: 'boltz.conf' },
   z.looseObject({}),
 )
+
+// A5 test mode (D46): the same, for the backend's test data directory
+export const boltzConfTest = FileHelper.toml(
+  { base: sdk.volumes.main, subpath: 'testnet4/boltz.conf' },
+  z.looseObject({}),
+)

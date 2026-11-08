@@ -19,6 +19,18 @@ const shape = z.looseObject({
     .looseObject({ macaroon: z.string() })
     .optional()
     .catch(undefined),
+  // A5 test mode (D46): the Mac's LAN address, and the provider Lightning
+  // Fork node's macaroon (hex) and TLS cert (PEM) when Lightning is tested
+  testMode: z
+    .looseObject({
+      host: z.string(),
+      lnd: z
+        .looseObject({ macaroon: z.string(), cert: z.string() })
+        .optional()
+        .catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
   // A3c: the operator's terms and pause, from the Swaps actions. A field
   // left unset falls back to utils.operatorDefaults (operator.ts).
   operator: z

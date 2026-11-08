@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'fs/promises'
 import { apiProxyConf } from './apiProxy'
-import { boltzConf } from './fileModels/boltz.conf'
+import { boltzConf, boltzConfTest } from './fileModels/boltz.conf'
 import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { directionFee, operatorTerms, sats } from './operator'
@@ -10,7 +10,6 @@ import {
   apiPort,
   apiProxyPort,
   apiProxySubpath,
-  backendNetwork,
   companionRpcLocalHostId,
   companionRpcLocalPort,
   dataDir,
@@ -33,12 +32,86 @@ import {
   sidecarApiPort,
   sidecarGrpcPort,
   sidecarWsPort,
+  testDataSubpath,
+  testLndCertFile,
+  testLndMacaroonFile,
+  testLndPort,
+  testNodes,
+  testPgSubpath,
+  testRpcLogin,
+  testWalletName,
 } from './utils'
 
 // "10.0.3.1:18432" -> host and port
 const hostPort = (address: string) => {
   const i = address.lastIndexOf(':')
   return { host: address.slice(0, i), port: Number(address.slice(i + 1)) }
+}
+
+// A5 test mode (D46): the Mac's testnet4 nodes over the LAN, as the Phase 1
+// and 2 runs used them (swapsha-backend swapsha-testnet4/boltz.conf), with
+// the measured testnet4 pace bounds (D30) and a wallet of its own on each
+const testCurrencies = (host: string, lnd: boolean) => {
+  const chain = (symbol: keyof typeof testNodes, seedAccount: number) => ({
+    host,
+    port: testNodes[symbol].rpcPort,
+    user: testRpcLogin.user,
+    password: testRpcLogin.password,
+    wallet: testWalletName,
+    zmq: {
+      rawblock: `tcp://${host}:${testNodes[symbol].zmqRawBlock}`,
+      rawtx: `tcp://${host}:${testNodes[symbol].zmqRawTx}`,
+    },
+    feeFloor: 1,
+    seedAccount,
+  })
+  return [
+    {
+      symbol: 'SHA256',
+      network: 'bitcoinTestnet',
+      pace: {
+        fastMinutesPerBlock: 6.17,
+        slowMinutesPerBlock: 18.92,
+        maxTipAgeMinutes: 120,
+      },
+      preferredWallet: 'core',
+      minWalletBalance: 0,
+      maxSwapAmount: 10_000_000,
+      minSwapAmount: 10_000,
+      maxZeroConfAmount: 0,
+      chain: chain('SHA256', 1),
+    },
+    {
+      symbol: 'BTC',
+      network: 'bitcoinTestnet',
+      pace: {
+        fastMinutesPerBlock: 20.26,
+        slowMinutesPerBlock: 59.44,
+        maxTipAgeMinutes: 120,
+      },
+      blake2b: true,
+      preferredWallet: 'core',
+      minWalletBalance: 0,
+      maxSwapAmount: 10_000_000,
+      minSwapAmount: 10_000,
+      maxZeroConfAmount: 0,
+      chain: chain('BTC', 0),
+      // The node's cert names localhost, not the Mac's LAN address
+      ...(lnd
+        ? {
+            lnds: [
+              {
+                host,
+                port: testLndPort,
+                sslTargetNameOverride: 'localhost',
+                certpath: `${dataDir}/${testLndCertFile}`,
+                macaroonpath: `${dataDir}/${testLndMacaroonFile}`,
+              },
+            ],
+          }
+        : {}),
+    },
+  ]
 }
 
 export const main = sdk.setupMain(async ({ effects }) => {
@@ -94,25 +167,43 @@ export const main = sdk.setupMain(async ({ effects }) => {
   // macaroon. Its gRPC binding exists only while its wallet is open; the
   // TLS passthrough binding publishes one address, so no ssl filter.
   const lfMacaroon = store?.lightningFork?.macaroon
-  const lfGrpc = lfMacaroon
-    ? await sdk.host
-        .getBridgeAddress(effects, {
-          packageId: 'lightning-fork',
-          hostId: lfGrpcHostId,
-          internalPort: lfGrpcPort,
-        })
-        .const()
-    : null
+  // A5 test mode (D46): the Mac's testnet4 stack instead of the StartOS
+  // dependencies; mainnet's Lightning Fork stays out of it
+  const test = store?.testMode
+  const lfGrpc =
+    lfMacaroon && !test
+      ? await sdk.host
+          .getBridgeAddress(effects, {
+            packageId: 'lightning-fork',
+            hostId: lfGrpcHostId,
+            internalPort: lfGrpcPort,
+          })
+          .const()
+      : null
+
+  if (test) {
+    await mkdir(sdk.volumes.main.subpath(testPgSubpath), { recursive: true })
+    await mkdir(sdk.volumes.main.subpath(testDataSubpath), { recursive: true })
+  }
 
   const postgres = sdk.SubContainer.of(
     effects,
     { imageId: 'postgres' },
-    sdk.Mounts.of().mountVolume({
-      volumeId: 'db',
-      subpath: null,
-      mountpoint: pgMountpoint,
-      readonly: false,
-    }),
+    // Test mode keeps its database apart, on main (backed up as files,
+    // with the service stopped); mainnet's stays on db (pg_dump, D40)
+    test
+      ? sdk.Mounts.of().mountVolume({
+          volumeId: 'main',
+          subpath: testPgSubpath,
+          mountpoint: pgMountpoint,
+          readonly: false,
+        })
+      : sdk.Mounts.of().mountVolume({
+          volumeId: 'db',
+          subpath: null,
+          mountpoint: pgMountpoint,
+          readonly: false,
+        }),
     'postgres',
   )
 
@@ -154,15 +245,16 @@ export const main = sdk.setupMain(async ({ effects }) => {
   // No address is made up for a node that is not there: the backend stays
   // off and this check says why, until .const() brings main back
   if (
-    !btcRpc ||
-    !btcZmqBlock ||
-    !btcZmqTx ||
-    !shaRpc ||
-    !shaRpcLocal ||
-    !shaZmqBlock ||
-    !shaZmqTx ||
-    !btcLogin ||
-    !shaLogin
+    !test &&
+    (!btcRpc ||
+      !btcZmqBlock ||
+      !btcZmqTx ||
+      !shaRpc ||
+      !shaRpcLocal ||
+      !shaZmqBlock ||
+      !shaZmqTx ||
+      !btcLogin ||
+      !shaLogin)
   ) {
     return daemons.addHealthCheck('nodes', {
       ready: {
@@ -190,6 +282,23 @@ export const main = sdk.setupMain(async ({ effects }) => {
     await rm(lfMacaroonPath, { force: true })
   }
 
+  // Test mode's Lightning Fork node: its macaroon and cert, while given
+  const testLnd = test?.lnd
+  for (const [file, content] of [
+    [
+      testLndMacaroonFile,
+      testLnd ? Buffer.from(testLnd.macaroon, 'hex') : null,
+    ],
+    [testLndCertFile, testLnd ? testLnd.cert : null],
+  ] as const) {
+    const path = `${testDataSubpath}/${file}`
+    if (content !== null) {
+      await sdk.volumes.main.writeFile(path, content, { mode: 0o600 })
+    } else {
+      await rm(sdk.volumes.main.subpath(path), { force: true })
+    }
+  }
+
   // Stage 1 of Phase 3 (Blueprint D37): Mike's mainnet nodes. The backend
   // runs its startup checks against them and turns down every new swap until
   // Phase 5 (patch 0045). Rate, fees, limits and the pause come from the
@@ -213,8 +322,9 @@ export const main = sdk.setupMain(async ({ effects }) => {
     feeFloor: 1,
   })
 
-  await boltzConf.write(effects, {
-    network: backendNetwork,
+  const lightning = test ? !!testLnd : !!lfGrpc
+  const conf = {
+    network: test ? 'testnet' : 'mainnet',
     loglevel: 'info',
     // A3c, patch 0052: new swaps turned down, swaps already made carry on
     pauseNewSwaps: terms.paused,
@@ -238,7 +348,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
         fee,
         maxSwapAmount: terms.maxSwapAmount,
         minSwapAmount: terms.minSwapAmount,
-        swapTypes: lfGrpc ? ['chain', 'submarine', 'reverse'] : ['chain'],
+        swapTypes: lightning ? ['chain', 'submarine', 'reverse'] : ['chain'],
         chainSwap: {
           minSwapAmount: terms.minSwapAmount,
           maxSwapAmount: terms.maxSwapAmount,
@@ -254,51 +364,53 @@ export const main = sdk.setupMain(async ({ effects }) => {
         },
       },
     ],
-    currencies: [
-      {
-        symbol: 'SHA256',
-        network: 'bitcoinMainnet',
-        preferredWallet: 'core',
-        minWalletBalance: 0,
-        maxSwapAmount: 10_000_000,
-        minSwapAmount: 10_000,
-        maxZeroConfAmount: 0,
-        chain: {
-          ...chain(shaRpc, shaLogin, shaZmqBlock, shaZmqTx),
-          // D40: the SHA-256 wallet, account 1', set up past the proxy
-          seedAccount: 1,
-          seedWalletRpc: hostPort(shaRpcLocal),
-        },
-      },
-      {
-        symbol: 'BTC',
-        network: 'bitcoinMainnet',
-        blake2b: true,
-        preferredWallet: 'core',
-        minWalletBalance: 0,
-        maxSwapAmount: 10_000_000,
-        minSwapAmount: 10_000,
-        maxZeroConfAmount: 0,
-        chain: {
-          ...chain(btcRpc, btcLogin, btcZmqBlock, btcZmqTx),
-          // D40: the BTC wallet, account 0'
-          seedAccount: 0,
-        },
-        // D42: startup checks the node (BLAKE2b, feature bit 512, no simple
-        // taproot channels) and stops if it fails them
-        ...(lfGrpc
-          ? {
-              lnds: [
-                {
-                  ...hostPort(lfGrpc),
-                  certpath: `${lfMount}/tls.cert`,
-                  macaroonpath: `${dataDir}/${lfMacaroonFile}`,
-                },
-              ],
-            }
-          : {}),
-      },
-    ],
+    currencies: test
+      ? testCurrencies(test.host, !!testLnd)
+      : [
+          {
+            symbol: 'SHA256',
+            network: 'bitcoinMainnet',
+            preferredWallet: 'core',
+            minWalletBalance: 0,
+            maxSwapAmount: 10_000_000,
+            minSwapAmount: 10_000,
+            maxZeroConfAmount: 0,
+            chain: {
+              ...chain(shaRpc!, shaLogin!, shaZmqBlock!, shaZmqTx!),
+              // D40: the SHA-256 wallet, account 1', set up past the proxy
+              seedAccount: 1,
+              seedWalletRpc: hostPort(shaRpcLocal!),
+            },
+          },
+          {
+            symbol: 'BTC',
+            network: 'bitcoinMainnet',
+            blake2b: true,
+            preferredWallet: 'core',
+            minWalletBalance: 0,
+            maxSwapAmount: 10_000_000,
+            minSwapAmount: 10_000,
+            maxZeroConfAmount: 0,
+            chain: {
+              ...chain(btcRpc!, btcLogin!, btcZmqBlock!, btcZmqTx!),
+              // D40: the BTC wallet, account 0'
+              seedAccount: 0,
+            },
+            // D42: startup checks the node (BLAKE2b, feature bit 512, no simple
+            // taproot channels) and stops if it fails them
+            ...(lfGrpc
+              ? {
+                  lnds: [
+                    {
+                      ...hostPort(lfGrpc as string),
+                      certpath: `${lfMount}/tls.cert`,
+                      macaroonpath: `${dataDir}/${lfMacaroonFile}`,
+                    },
+                  ],
+                }
+              : {}),
+          },
+        ],
     swap: {
       deferredClaimSymbols: [],
       batchClaimInterval: '*/15 * * * *',
@@ -312,7 +424,8 @@ export const main = sdk.setupMain(async ({ effects }) => {
       ws: { host: '127.0.0.1', port: sidecarWsPort },
       api: { host: '127.0.0.1', port: sidecarApiPort },
     },
-  })
+  }
+  await (test ? boltzConfTest : boltzConf).write(effects, conf)
 
   // The API interface's nginx config (A3b)
   await mkdir(sdk.volumes.main.subpath(apiProxySubpath), { recursive: true })
@@ -320,7 +433,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
 
   let backendMounts = sdk.Mounts.of().mountVolume({
     volumeId: 'main',
-    subpath: null,
+    subpath: test ? testDataSubpath : null,
     mountpoint: dataDir,
     readonly: false,
   })
@@ -367,9 +480,14 @@ export const main = sdk.setupMain(async ({ effects }) => {
               effects,
               apiPort,
               {
-                successMessage: i18n(
-                  'The backend is running. New swaps stay turned down on mainnet until Phase 5.',
-                ),
+                successMessage: test
+                  ? i18n(
+                      'TEST MODE: the backend is running against the testnet4 nodes at ${host}.',
+                      { host: test.host },
+                    )
+                  : i18n(
+                      'The backend is running. New swaps stay turned down on mainnet until Phase 5.',
+                    ),
                 errorMessage: i18n(
                   'Waiting for the backend: chain checks, wallets and sidecar',
                 ),
@@ -399,9 +517,11 @@ export const main = sdk.setupMain(async ({ effects }) => {
           display: i18n('API'),
           fn: () =>
             sdk.healthCheck.checkPortListening(effects, apiProxyPort, {
-              successMessage: i18n(
-                'The API interface is answering. New swaps on mainnet are turned down until Phase 5.',
-              ),
+              successMessage: test
+                ? i18n('TEST MODE: the API interface is answering.')
+                : i18n(
+                    'The API interface is answering. New swaps on mainnet are turned down until Phase 5.',
+                  ),
               errorMessage: i18n('The API interface is not answering'),
             }),
         },
@@ -411,7 +531,15 @@ export const main = sdk.setupMain(async ({ effects }) => {
         ready: {
           display: i18n('Lightning'),
           fn: async () => {
-            if (!lfMacaroon) {
+            if (test && !testLnd) {
+              return {
+                result: 'disabled',
+                message: i18n(
+                  'TEST MODE without Lightning: chain swaps only. Enter Test Mode again with the macaroon and cert to add it.',
+                ),
+              }
+            }
+            if (!test && !lfMacaroon) {
               return {
                 result: 'disabled',
                 message: i18n(
@@ -419,7 +547,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
                 ),
               }
             }
-            if (!lfGrpc) {
+            if (!test && !lfGrpc) {
               return {
                 result: 'failure',
                 message: i18n(
@@ -440,10 +568,15 @@ export const main = sdk.setupMain(async ({ effects }) => {
               if (key) {
                 return {
                   result: 'success',
-                  message: i18n(
-                    'Connected to Lightning Fork (node ${key}) with the read-only macaroon. Lightning swaps stay off until Phase 5.',
-                    { key: `${key.slice(0, 10)}...` },
-                  ),
+                  message: test
+                    ? i18n(
+                        'TEST MODE: connected to the Lightning Fork node at ${host} (node ${key})',
+                        { host: test.host, key: `${key.slice(0, 10)}...` },
+                      )
+                    : i18n(
+                        'Connected to Lightning Fork (node ${key}) with the read-only macaroon. Lightning swaps stay off until Phase 5.',
+                        { key: `${key.slice(0, 10)}...` },
+                      ),
                 }
               }
               return {
@@ -531,7 +664,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
           fn: async () => {
             const alerts = overviewAlerts(
               await gatherOverview(effects, {
-                withBalances: backendNetwork !== 'mainnet' && !terms.paused,
+                withBalances: !!test && !terms.paused,
               }),
             )
             return alerts.length
@@ -540,6 +673,22 @@ export const main = sdk.setupMain(async ({ effects }) => {
           },
         },
         requires: ['backend'],
+      })
+      .addHealthCheck('test-mode', {
+        ready: {
+          display: test ? i18n('Test mode') : null,
+          fn: () =>
+            test
+              ? {
+                  result: 'success',
+                  message: i18n(
+                    'TEST MODE on testnet4, nodes at ${host}. Mainnet data is kept aside; Leave Test Mode brings it back.',
+                    { host: test.host },
+                  ),
+                }
+              : { result: 'disabled', message: null },
+        },
+        requires: [],
       })
   )
 })

@@ -28,9 +28,6 @@ export const nodeWalletName = 'swapsha'
 
 // The backend (boltzd and its sidecar), all on 127.0.0.1 in the package
 export const dataDir = '/data' // the main volume
-// Stage 1 of Phase 3 (D37): the backend turns down every new swap on
-// mainnet until Phase 5 (patch 0045). Test mode (A5) changes this.
-export const backendNetwork = 'mainnet'
 // boltzr-cli and the gRPC certificates the backend writes to its datadir
 export const boltzrCli = '/boltz-backend/target/release/boltzr-cli'
 export const grpcCertificates = `${dataDir}/certificates`
@@ -70,3 +67,22 @@ export const operatorDefaults = {
   maxSwapAmount: 10_000_000,
   paused: false,
 }
+
+// A5 test mode (D46): the Mac's testnet4 stack, reached over the LAN, as
+// ~/Claude/swapsha/testnet4/swapsha_testnet4.sh and
+// ~/Claude/swapsha/lightning/swapsha_ln_testnet4.sh run it (their `lan`
+// option). The backend's data and its database live apart from mainnet's,
+// on the main volume, so stage 1's state is untouched.
+export const testNodes = {
+  SHA256: { rpcPort: 48332, zmqRawTx: 28532, zmqRawBlock: 28533 },
+  BTC: { rpcPort: 48432, zmqRawTx: 28632, zmqRawBlock: 28633 },
+} as const
+export const testRpcLogin = { user: 'swapsha', password: 'swapsha' }
+export const testLndPort = 10021 // the provider node, "prov"
+// Not "swapsha": the Mac nodes already hold the Phase 1 "swapsha" wallets,
+// and the D40 check refuses a wallet of that name with other keys
+export const testWalletName = 'swapsha-start9'
+export const testDataSubpath = 'testnet4' // on main, mounted at /data
+export const testPgSubpath = 'testnet4-postgres' // on main, for PostgreSQL
+export const testLndCertFile = 'lnd.cert' // in testDataSubpath
+export const testLndMacaroonFile = 'lnd.macaroon' // in testDataSubpath

@@ -22,3 +22,6 @@ bare clone with no workspace, the full guide is at <https://docs.start9.com/pack
   `alerts` health check, both from `startos/overview.ts`. It only reads: the backend's API, its
   admin gRPC through `boltzr-cli` (certificates and `admin.jwt` in `/data/certificates`), the
   database through `psql`, and the nodes' RPC. Do not add a web dashboard interface.
+- Test mode (Blueprint D46) is a second configuration in `main.ts`, switched by `store.json`
+  `testMode`: keep its data under `main/testnet4` and `main/testnet4-postgres`, and never let it
+  read or write mainnet's `main` root files or the `db` volume.

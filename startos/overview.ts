@@ -5,7 +5,6 @@ import { operatorTerms, sats } from './operator'
 import { sdk } from './sdk'
 import {
   apiPort,
-  backendNetwork,
   boltzrCli,
   dataDir,
   grpcCertificates,
@@ -14,6 +13,9 @@ import {
   pgDatabase,
   pgUser,
   RpcNode,
+  testDataSubpath,
+  testNodes,
+  testRpcLogin,
 } from './utils'
 
 // A3d: the operator dashboard (blueprint 6.4, inside StartOS). Read fresh
@@ -59,6 +61,8 @@ type ChainPair = {
 }
 
 export type Overview = {
+  // A5 test mode (D46): the Mac's LAN address
+  test: string | null
   mainnetLock: boolean
   paused: boolean
   lightning: boolean
@@ -134,8 +138,10 @@ export const gatherOverview = async (
   const terms = operatorTerms(store?.operator)
   const problems: string[] = []
 
+  const test = store?.testMode
   const overview: Overview = {
-    mainnetLock: backendNetwork === 'mainnet',
+    test: test?.host ?? null,
+    mainnetLock: !test,
     paused: terms.paused,
     lightning: !!store?.lightningFork?.macaroon,
     rate: terms.rate,
@@ -170,16 +176,18 @@ export const gatherOverview = async (
   // Each node's chain, through the same RPC login the backend uses
   await Promise.all(
     nodes.map(async ({ id, symbol }) => {
-      const login = store?.rpc?.[id]
+      const login = test ? testRpcLogin : store?.rpc?.[id]
       try {
-        const address = await sdk.host
-          .getBridgeAddress(effects, {
-            packageId: id,
-            hostId: nodeRpcHostId,
-            internalPort: nodeRpcPort,
-            ssl: false,
-          })
-          .once()
+        const address = test
+          ? `${test.host}:${testNodes[symbol].rpcPort}`
+          : await sdk.host
+              .getBridgeAddress(effects, {
+                packageId: id,
+                hostId: nodeRpcHostId,
+                internalPort: nodeRpcPort,
+                ssl: false,
+              })
+              .once()
         if (!address || !login) throw new Error(i18n('not reachable'))
         const info = (await nodeRpc(address, login, 'getblockchaininfo')) as {
           blocks: number
@@ -203,7 +211,7 @@ export const gatherOverview = async (
     { imageId: 'swapsha' },
     sdk.Mounts.of().mountVolume({
       volumeId: 'main',
-      subpath: null,
+      subpath: test ? testDataSubpath : null,
       mountpoint: dataDir,
       readonly: true,
     }),
@@ -286,8 +294,14 @@ const needs = (o: Overview) => ({
   BTC: Math.ceil(o.largest / o.rate),
 })
 
-const nodeName = (symbol: ChainSymbol) =>
-  symbol === 'BTC' ? i18n('Bitcoin Knots (BTC)') : i18n('Companion (SHA-256)')
+const nodeName = (o: Overview, symbol: ChainSymbol) =>
+  o.test
+    ? symbol === 'BTC'
+      ? i18n('Testnet4 node on the Mac (BTC)')
+      : i18n('Testnet4 node on the Mac (SHA-256)')
+    : symbol === 'BTC'
+      ? i18n('Bitcoin Knots (BTC)')
+      : i18n('Companion (SHA-256)')
 
 const behind = (n: NodeState) =>
   n.ibd === true ||
@@ -369,14 +383,14 @@ export const overviewAlerts = (o: Overview): string[] => {
     if (n.error) {
       alerts.push(
         i18n('${node} did not answer: ${reason}', {
-          node: nodeName(symbol),
+          node: nodeName(o, symbol),
           reason: n.error,
         }),
       )
     } else if (behind(n)) {
       alerts.push(
         i18n('${node} is behind: block ${blocks} of ${headers}', {
-          node: nodeName(symbol),
+          node: nodeName(o, symbol),
           blocks: sats(n.blocks ?? 0),
           headers: sats(n.headers ?? 0),
         }),
@@ -485,6 +499,12 @@ const shownSwaps = 50
 export const overviewMarkdown = (o: Overview): string => {
   const parts: string[] = []
 
+  if (o.test) {
+    parts.push(
+      i18n('**TEST MODE** on testnet4, nodes at ${host}.', { host: o.test }),
+    )
+  }
+
   const turnedDown: string[] = []
   if (o.mainnetLock)
     turnedDown.push(i18n('mainnet stays off until Phase 5 (D37)'))
@@ -546,9 +566,9 @@ export const overviewMarkdown = (o: Overview): string => {
       nodes.map(({ symbol }) => {
         const n = o.nodes[symbol]
         return n.error
-          ? [nodeName(symbol), '', '', n.error]
+          ? [nodeName(o, symbol), '', '', n.error]
           : [
-              nodeName(symbol),
+              nodeName(o, symbol),
               sats(n.blocks ?? 0),
               sats(n.headers ?? 0),
               behind(n) ? i18n('No') : i18n('Yes'),
