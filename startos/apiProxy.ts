@@ -11,6 +11,9 @@ export const apiProxyConf = `# Written by SwapSha's main.ts on every start; edit
 server {
     listen ${apiProxyPort};
     server_tokens off;
+    # No access log: it would keep each user's address beside the swap IDs
+    # they look up (D36). Errors still go to the log.
+    access_log off;
 
     add_header 'Access-Control-Allow-Origin' '*' always;
     add_header 'Access-Control-Allow-Headers' '*' always;
