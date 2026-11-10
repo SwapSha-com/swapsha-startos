@@ -5,6 +5,7 @@ import { storeJson } from './fileModels/store.json'
 import { i18n } from './i18n'
 import { directionFee, operatorTerms, sats } from './operator'
 import { gatherOverview, overviewAlerts } from './overview'
+import { updateRescueFile } from './rescue'
 import { sdk } from './sdk'
 import {
   apiPort,
@@ -671,6 +672,16 @@ export const main = sdk.setupMain(async ({ effects }) => {
               ? { result: 'failure', message: alerts.join('; ') }
               : { result: 'success', message: i18n('No alerts') }
           },
+        },
+        requires: ['backend'],
+      })
+      // A4b, D44: the rescue file, checked against the database once a minute
+      // and rewritten when the open swaps change, for every backup to hold
+      .addHealthCheck('rescue', {
+        ready: {
+          display: i18n('Rescue file'),
+          trigger: sdk.trigger.statusTrigger(60_000, { starting: 1_000 }),
+          fn: () => updateRescueFile(effects, { test: !!test, pgPassword }),
         },
         requires: ['backend'],
       })

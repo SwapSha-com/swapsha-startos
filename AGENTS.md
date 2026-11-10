@@ -25,3 +25,12 @@ bare clone with no workspace, the full guide is at <https://docs.start9.com/pack
 - Test mode (Blueprint D46) is a second configuration in `main.ts`, switched by `store.json`
   `testMode`: keep its data under `main/testnet4` and `main/testnet4-postgres`, and never let it
   read or write mainnet's `main` root files or the `db` volume.
+- The rescue (Blueprint D44) works from `rescue.json` alone, never from the database, which may be
+  what broke. Keep Rescue Swap `only-stopped`, so the backend cannot spend the same lockup at the
+  same time. Keys are derived only inside the action's temporary container (`boltzr-cli tools
+derive-key`) and checked against the swap script before signing; never write a key or the seed
+  to a file, a log or an action result.
+- Rescue Swap records what it signs in `rescued.json` before broadcasting; the backend adopts a
+  record only after checking it against the swap and seeing it confirmed (backend patch 0059).
+  Never mark a swap from the package side, and never drop the check: a user's claim taken for a
+  rescue would make SwapSha skip its own claim.
