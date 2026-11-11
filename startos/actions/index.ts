@@ -5,7 +5,11 @@ import {
 } from './connectLightningFork'
 import { pauseSwaps, resumeSwaps, setLimits, setRate } from './operator'
 import { swapsOverview } from './overview'
-import { exportRescueData, rescueSwapAction } from './rescue'
+import {
+  exportRescueData,
+  recoverNodeWallets,
+  rescueSwapAction,
+} from './rescue'
 import { enterTestMode, leaveTestMode } from './testMode'
 
 export const actions = sdk.Actions.of()
@@ -18,5 +22,6 @@ export const actions = sdk.Actions.of()
   .addAction(disconnectLightningFork)
   .addAction(exportRescueData)
   .addAction(rescueSwapAction)
+  .addAction(recoverNodeWallets)
   .addAction(enterTestMode)
   .addAction(leaveTestMode)

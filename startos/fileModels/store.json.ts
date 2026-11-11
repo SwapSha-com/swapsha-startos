@@ -31,6 +31,13 @@ const shape = z.looseObject({
     })
     .optional()
     .catch(undefined),
+  // A4b-3, D40 (second amendment): a one-time request to recover the seed
+  // wallets on the nodes, from Recover Node Wallets, for the mode it was
+  // made in. The backend does each request once (wallet-recovery.json).
+  walletRecovery: z
+    .looseObject({ request: z.string(), testMode: z.boolean() })
+    .optional()
+    .catch(undefined),
   // A3c: the operator's terms and pause, from the Swaps actions. A field
   // left unset falls back to utils.operatorDefaults (operator.ts).
   operator: z

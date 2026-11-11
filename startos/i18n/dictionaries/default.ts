@@ -224,6 +224,13 @@ const dict = {
   'Rescues recorded for the backend, which marks each swap refunded or claimed once its transaction confirms:': 201,
   '${id}: refund ${txid}': 202,
   '${id}: claim ${txid}': 203,
+
+  // A4b-3: Recover Node Wallets (D40, second amendment)
+  'Recover Node Wallets': 204,
+  "Find the coins of SwapSha's wallets on both nodes again from seed.dat, from the BLAKE2b fork block on. For a node wallet that was lost and made again empty.": 205,
+  'SwapSha restarts and recovers before it opens swaps. On the pruned SHA-256 node this fetches blocks back from peers and can take a while.': 206,
+  'Wallet recovery requested': 207,
+  'SwapSha restarts and recovers both node wallets from the BLAKE2b fork block. Its log shows what each recovery found; Swaps Overview shows the balances.': 208,
 } as const
 
 /**

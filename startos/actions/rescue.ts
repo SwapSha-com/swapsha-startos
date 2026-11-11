@@ -266,3 +266,42 @@ export const rescueSwapAction = sdk.Action.withInput(
     }
   },
 )
+
+// A4b-3, D40 (second amendment): the seed wallets' coins found again after a
+// wallet was lost and made blank from seed.dat. The backend does the work at
+// startup (patch 0063): a rescan from the BLAKE2b fork block on an archival
+// node; block filters, blocks fetched back from peers and a rescan of each
+// on the pruned Companion.
+export const recoverNodeWallets = sdk.Action.withoutInput(
+  'recover-node-wallets',
+
+  async () => ({
+    name: i18n('Recover Node Wallets'),
+    description: i18n(
+      "Find the coins of SwapSha's wallets on both nodes again from seed.dat, from the BLAKE2b fork block on. For a node wallet that was lost and made again empty.",
+    ),
+    warning: i18n(
+      'SwapSha restarts and recovers before it opens swaps. On the pruned SHA-256 node this fetches blocks back from peers and can take a while.',
+    ),
+    allowedStatuses: 'any',
+    group: i18n('Rescue'),
+    visibility: 'enabled',
+  }),
+
+  async ({ effects }) => {
+    await storeJson.merge(effects, {
+      walletRecovery: {
+        request: new Date().toISOString(),
+        testMode: await testMode(),
+      },
+    })
+    return {
+      version: '1',
+      title: i18n('Wallet recovery requested'),
+      message: i18n(
+        'SwapSha restarts and recovers both node wallets from the BLAKE2b fork block. Its log shows what each recovery found; Swaps Overview shows the balances.',
+      ),
+      result: null,
+    }
+  },
+)

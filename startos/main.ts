@@ -329,6 +329,11 @@ export const main = sdk.setupMain(async ({ effects }) => {
     loglevel: 'info',
     // A3c, patch 0052: new swaps turned down, swaps already made carry on
     pauseNewSwaps: terms.paused,
+    // A4b-3, D40: recover the node wallets once (backend patch 0063), only
+    // in the mode the request was made in
+    ...(store?.walletRecovery && store.walletRecovery.testMode === !!test
+      ? { recoverNodeWallets: store.walletRecovery.request }
+      : {}),
     api: { host: '127.0.0.1', port: apiPort },
     grpc: { host: '127.0.0.1', port: grpcPort },
     postgres: {
